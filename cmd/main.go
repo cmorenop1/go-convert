@@ -1,82 +1,62 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
-
-	"github.com/cmorenop1/go-converter/internals/components"
-)
-
-type Stepper struct {
-	CurrentStep int
-}
-
-const (
-	inputStep = iota
-	outputStep
-	executeStep
-	quit
 )
 
 func main() {
-	components.Welcome()
-	stepper := NewStepper()
-	reader := bufio.NewReader(os.Stdin)
+	// Get current directory
+	dir, err := os.Getwd()
+	if err != nil {
+		fmt.Printf("Error getting current directory: %v\n", err)
+		return
+	}
 
-	var inputFile string
-	var outputFile string
+	// Open the current directory
+	dirHandle, err := os.Open(dir)
+	if err != nil {
+		fmt.Printf("Error opening directory: %v\n", err)
+		return
+	}
+	defer dirHandle.Close()
 
-	for {
-		switch stepper.CurrentStep {
-		case inputStep:
-			fmt.Println("\n[Input (.mov) filename]")
-			inputSting, err := reader.ReadString('\n')
-			if err != nil {
-				fmt.Printf("Error reading input: %v\n", err)
-				continue
+	// Get all files in the directory
+	fileInfos, err := dirHandle.Readdir(-1)
+	if err != nil {
+		fmt.Printf("Error reading directory: %v\n", err)
+		return
+	}
+
+	// Loop through each file
+	for _, fileInfo := range fileInfos {
+		if fileInfo.Mode().IsRegular() {
+			fileName := fileInfo.Name()
+			if strings.HasSuffix(fileName, ".mov") {
+				// Convert .mov file to .mp4
+				err := convertMovToMp4(fileName)
+				if err != nil {
+					fmt.Printf("Error converting %s: %v\n", fileName, err)
+					continue
+				}
+
+				// Remove the original .mov file
+				err = os.Remove(fileName)
+				if err != nil {
+					fmt.Printf("Error removing %s: %v\n", fileName, err)
+				} else {
+					fmt.Printf("Converted and removed: %s\n", fileName)
+				}
 			}
-			inputFile = strings.TrimSpace(inputSting)
-			stepper.Next()
-		case outputStep:
-			fmt.Println("\n[Output (.mp4) filename]")
-			outputString, err := reader.ReadString('\n')
-			if err != nil {
-				fmt.Printf("Error reading input: %v\n", err)
-				continue
-			}
-			outputFile = strings.TrimSpace(outputString)
-			stepper.Next()
-		case executeStep:
-			fmt.Println("\n 🔨 Converting...")
-			err := convertMovToMp4(inputFile, outputFile)
-			if err != nil {
-				fmt.Printf("Conversion error: %v\n", err)
-			} else {
-				fmt.Println("✅ Conversion successful!")
-			}
-			stepper.Next()
-		case quit:
-			fmt.Println("\n ✨ Done !!")
-			os.Exit(0)
 		}
 	}
 }
 
-func NewStepper() Stepper {
-	return Stepper{
-		CurrentStep: 0,
-	}
-}
-
-func (s *Stepper) Next() {
-	s.CurrentStep++
-}
-
-func convertMovToMp4(inputFile, outputFile string) error {
-	cmd := exec.Command("ffmpeg", "-i", inputFile, "-c:v", "copy", "-c:a", "aac", "-strict", "experimental", outputFile)
+func convertMovToMp4(filename string) error {
+	// Convert MOV to MP4
+	cmd := exec.Command("ffmpeg", "-i", filename, "-c:v", "libx264", "-b:v", "2M", "-c:a", "aac", "-b:a", "128K", "-movflags", "+faststart", strings.TrimSuffix(filename, ".mov")+".mp4")
 	err := cmd.Run()
 	if err != nil {
 		return err
